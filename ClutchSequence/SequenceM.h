@@ -29,11 +29,59 @@ namespace lmnop {
 
 	template <typename T>
 	concept fully_defined_T = std::default_initializable<T> &&
-		                    std::copyable<T> &&
-		                    std::is_nothrow_move_constructible_v<T> &&
-		                    std::is_nothrow_move_assignable_v<T> &&
-		                    std::destructible<T> && 
-		                    !std::is_const_v<T>;
+		                      std::copyable<T> &&
+		                      std::is_nothrow_move_constructible_v<T> &&
+		                      std::is_nothrow_move_assignable_v<T> &&
+		                      std::destructible<T> && 
+		                      !std::is_const_v<T>;
+
+	template<typename T>
+	requires fully_defined_T<T>
+	class SMAllocator {
+
+		using value_type = T;
+		using pointer = T*;
+		using size_type = std::size_t;
+
+	public:
+
+		pointer alloc(size_type count) {
+			return static_cast<pointer>(::operator new(count * sizeof(value_type)));
+		}
+		constexpr void destroy(pointer begin, pointer end) {
+			std::destroy(begin, end);
+		}
+		void free(pointer mem) {
+			::operator delete(mem);
+		}
+		pointer reallocate(pointer begin, pointer end, size_type newSize) {
+			pointer destination = alloc(newSize);
+			pointer initialized = destination;
+			try {
+				initialized = std::uninitialized_move(begin, end, destination);
+			}
+			catch (...) {
+				destroy(destination, initialized);
+				free(destination);
+				throw;
+			}
+
+			return destination;
+		}
+		pointer copyConstruct(pointer begin, pointer end, size_type newSize) {
+			pointer destination = alloc(newSize);
+			pointer initialized = destination;
+			try {
+				initialized = std::uninitialized_copy(begin, end, destination);
+			}
+			catch (...) {
+				destroy(destination, initialized);
+				free(destination);
+				throw;
+			}
+			return destination;
+		}
+	};
 
 	template<typename T>
     requires fully_defined_T<T>
@@ -53,8 +101,18 @@ namespace lmnop {
 
 		using iterator = Iterator;
 		using const_iterator = Const_Iterator;
-		static constexpr size_type ZERO__SM = 0;
 	public:
+		//CONSTRUCTORS
+		constexpr SequenceM()noexcept = default;
+		SequenceM(std::initializer_list<value_type> init) requires std::copyable<value_type> {
+			copyConstruct(init.begin(), init.end(), init.size());
+		}
+		SequenceM(const SequenceM<value_type>& rhs) requires std::copyable<value_type> {
+			copyConstruct(rhs.raw_begin(), rhs.raw_end(), rhs.size());
+		}
+
+
+		//###################################################################
 		//GETTERS
 		constexpr bool is_empty()const noexcept               { return mPublicSize == ZERO__SM; }
 		constexpr bool is_empty_buffer() const noexcept       { return mBufferSize == ZERO__SM; }
@@ -107,38 +165,56 @@ namespace lmnop {
 		}
 		//###################################################################
 
-
-
-
+		constexpr swap(SequenceM<value_type>& rhs)noexcept {
+			std::swap(mArray,      rhs.mArray);
+			std::swap(mPublicSize, rhs.mPublicSize);
+			std::swap(mTotalSize,  rhs.mTotalSize);
+			std::swap(mBufferSize, rhs.mBufferSize);
+			std::swap(mCapacity,   rhs.mCapacity);
+			std::swap(mAutoSize,   rhs.mAutoSize);
+			std::swap(isAuto,      rhs.isAuto);
+		}
 
 	private:
+		constexpr pointer raw_begin()    { return mArray; }
+		constexpr pointer raw_end()      { return mArray + mPublicSize; }
+		constexpr pointer raw_real_end() { return mArray + mTotalSize; }
+
+		void grow(size_type newSize) {
+			pointer temp = allocator.reallocate(raw_begin(), raw_real_end(), newSize);
+			allocator.destroy(raw_begin(), raw_real_end());
+			allocator.free(raw_begin());
+
+			mArray = temp;
+			cap = newSize;
+			//size does not change on reallocation
+		}
+		void copyConstruct(pointer begin, pointer end, size_type size) {
+			if (size > 0) {
+				pointer temp = allocator.copyConstruct(begin, end, size);
+
+				mArray = temp;
+				mPublicSize = size;
+				mTotalSize = size;
+				mCapacity = size;
+				//other vairables related to class behavior are set manually...
+			}
+		}
+
+	private:
+		//main variables
 		pointer     mArray = nullptr;
 		size_type   mPublicSize    = 0;
 		size_type   mTotalSize     = 0;
-		size_type   mBufferSize    = 0;
 		size_type   mCapacity      = 0;
-		size_type   mAutoSize = 0;
+		SMAllocator<value_type> allocator;
+		//the clutch variables
+		size_type   mBufferSize    = 0;
+		size_type   mAutoSize      = 0;
 		bool isAuto = false;
+		//bs
+		static constexpr size_type ZERO__SM = 0;
 	};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 	template<typename T>
