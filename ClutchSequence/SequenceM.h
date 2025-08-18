@@ -95,6 +95,7 @@ namespace lmnop {
 			catch (...) {
 				destroy(destination, initialized);
 				free(destination);
+				throw;
 			}
 			return destination;
 		}
@@ -108,6 +109,7 @@ namespace lmnop {
 			catch (...) {
 				destroy(destination, initialized);
 				free(destination);
+				throw;
 			}
 			return destination;
 		}
