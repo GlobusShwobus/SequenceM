@@ -57,59 +57,18 @@ namespace lmnop {
 			requires std::destructible<value_type> {
 			std::destroy(begin, end);
 		}
-		pointer reallocate(pointer begin, pointer end, size_type newSize)
-			requires std::is_nothrow_move_constructible_v<value_type>{
-			pointer destination = alloc(newSize);
+
+		template<typename constructorPredicate>
+		requires std::predicate<constructorPredicate, pointer, size_type>
+		pointer allocConstruct(constructorPredicate constructor, size_type size) {
+			pointer destination = alloc(size);
 			pointer initialized = destination;
 			try {
-				initialized = std::uninitialized_move(begin, end, destination);
+				initialized = constructor(destination, size);
 			}
 			catch (...) {
 				destroy(destination, initialized);
 				free(destination);
-				throw;
-			}
-			return destination;
-		}
-		pointer copyConstruct(const_pointer begin, const_pointer end, size_type newSize)
-			requires std::copyable<value_type> {
-			pointer destination = alloc(newSize);
-			pointer initialized = destination;
-			try {
-				initialized = std::uninitialized_copy(begin, end, destination);
-			}
-			catch (...) {
-				destroy(destination, initialized);
-				free(destination);
-				throw;
-			}
-			return destination;
-		}
-		pointer defaultConstructN(size_type newSize)
-			requires std::default_initializable<value_type> {
-			pointer destination = alloc(newSize);
-			pointer initialized = destination;
-			try {
-				initialized = std::uninitialized_default_construct_n(destination, newSize);
-			}
-			catch (...) {
-				destroy(destination, initialized);
-				free(destination);
-				throw;
-			}
-			return destination;
-		}
-		pointer fillConstructN(size_type newSize, const_reference value)
-			requires std::copyable<value_type> {
-			pointer destination = alloc(newSize);
-			pointer initialized = destination;
-			try {
-				initialized = std::uninitialized_fill_n(destination, newSize, value);
-			}
-			catch (...) {
-				destroy(destination, initialized);
-				free(destination);
-				throw;
 			}
 			return destination;
 		}
@@ -136,32 +95,40 @@ namespace lmnop {
 	public:
 		//CONSTRUCTORS
 		constexpr SequenceM()noexcept = default;
+		
+		
 		SequenceM(size_type count) {
-			if (count > 0) {
-				construct(allocator.defaultConstructN(count),count);
+			if (count > ZERO__SM) {
+				construct(allocator.allocConstruct([](pointer dest, size_type n) {
+						return std::uninitialized_default_construct_n(dest, n);
+						},
+					count), count);
 			}
 		}
 		SequenceM(size_type count, const_reference value) {
-			if (count > 0) {//if we pass a reference object then how tf can it be 0? idk but the check is fine
-				construct(allocator.fillConstructN(count, value), count);
+			if (count > ZERO__SM) {
+				construct(allocator.allocConstruct([value&](pointer dest, size_type n) {
+					return std::uninitialized_fill_n(dest, n, value);
+					},
+					count), count);
 			}
 		}
 		SequenceM(std::initializer_list<value_type> init) {
 			size_type size = init.size();
-			if (size > 0) {
-				construct(
-					allocator.copyConstruct(init.begin(), init.end(), size),
-					size
-				);
+			if (size > ZERO__SM) {
+				construct(allocator.allocConstruct([init](pointer dest, size_type n) {
+					return std::uninitialized_copy(init.begin(), init.end(), dest);
+					},
+					size), size);
 			}
 		}
 		SequenceM(const SequenceM<value_type>& rhs) {
 			size_type size = rhs.size();
-			if (size > 0) {
-				construct(
-					allocator.copyConstruct(rhs.cpBegin(), rhs.cpEnd(), size),
-					size
-				);
+			if (size > ZERO__SM) {
+				construct(allocator.allocConstruct([&rhs](pointer dest, size_type n) {
+					return uninitialized_copy(rhs.begin(), rhs.end(), dest);
+					},
+					size), size);
 			}
 		}
 		constexpr SequenceM(SequenceM<value_type>&& rhs)noexcept {
@@ -262,6 +229,12 @@ namespace lmnop {
 			mCapacity = rhs.mCapacity;
 			rhs.mCapacity = tempD;
 		}
+		//MODIFICATION
+		void reserve(size_type capacity) {
+			if (capacity > mCapacity) {
+				grow(capacity);
+			}
+		}
 
 	private:
 		constexpr pointer data()                 { return mArray; }
@@ -273,20 +246,28 @@ namespace lmnop {
 		constexpr const_pointer cpRealEnd()const { return mArray + mTotalSize; }
 
 		void grow(size_type newSize) {
-			pointer temp = allocator.reallocate(pBegin(), pRealEnd(), newSize);
-			allocator.destroy(pBegin(), pRealEnd());
-			allocator.free(data());
+			pointer begin = pBegin();
+			pointer rEnd  = pRealEnd();
+
+			pointer temp = allocator.allocConstruct([begin, rEnd](pointer dest, size_type n) {
+				return std::uninitialized_move(begin, rEnd, dest);
+				},
+				newSize
+			);
+			allocator.destroy(begin, rEnd);
+			allocator.free(begin);
 
 			mArray = temp;
 			mCapacity = newSize;
 			//size does not change on reallocation
 		}
-		void construct(pointer data, size_type size) {
+		constexpr void construct(pointer data, size_type size) noexcept {
 			mArray     = data;
 			mValidSize = size;
 			mTotalSize = size;
 			mCapacity  = size;
 		}
+		constexpr size_type growthFactor(size_type seed)const { return seed + (seed / 1.8) + 1; }
 
 	private:
 		//main variables
