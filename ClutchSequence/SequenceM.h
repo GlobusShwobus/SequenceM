@@ -36,25 +36,29 @@ namespace lmnop {
 		                      !std::is_const_v<T>;
 
 	template<typename T>
-	requires fully_defined_T<T>
 	class SMAllocator {
 
-		using value_type = T;
-		using pointer = T*;
-		using size_type = std::size_t;
+		using value_type      = T;
+		using pointer         = T*;
+		using const_pointer   = const T*;
+		using reference       = T&;
+		using const_reference = const T&;
+		using size_type       = std::size_t;
 
 	public:
 
 		pointer alloc(size_type count) {
 			return static_cast<pointer>(::operator new(count * sizeof(value_type)));
 		}
-		constexpr void destroy(pointer begin, pointer end) {
-			std::destroy(begin, end);
-		}
 		void free(pointer mem) {
 			::operator delete(mem);
 		}
-		pointer reallocate(pointer begin, pointer end, size_type newSize) {
+		constexpr void destroy(pointer begin, pointer end)
+			requires std::destructible<value_type> {
+			std::destroy(begin, end);
+		}
+		pointer reallocate(pointer begin, pointer end, size_type newSize)
+			requires std::is_nothrow_move_constructible_v<value_type>{
 			pointer destination = alloc(newSize);
 			pointer initialized = destination;
 			try {
@@ -65,10 +69,10 @@ namespace lmnop {
 				free(destination);
 				throw;
 			}
-
 			return destination;
 		}
-		pointer copyConstruct(pointer begin, pointer end, size_type newSize) {
+		pointer copyConstruct(const_pointer begin, const_pointer end, size_type newSize)
+			requires std::copyable<value_type> {
 			pointer destination = alloc(newSize);
 			pointer initialized = destination;
 			try {
@@ -78,6 +82,32 @@ namespace lmnop {
 				destroy(destination, initialized);
 				free(destination);
 				throw;
+			}
+			return destination;
+		}
+		pointer defaultConstructN(size_type newSize)
+			requires std::default_initializable<value_type> {
+			pointer destination = alloc(newSize);
+			pointer initialized = destination;
+			try {
+				initialized = std::uninitialized_default_construct_n(destination, newSize);
+			}
+			catch (...) {
+				destroy(destination, initialized);
+				free(destination);
+			}
+			return destination;
+		}
+		pointer fillConstructN(size_type newSize, const_reference value)
+			requires std::copyable<value_type> {
+			pointer destination = alloc(newSize);
+			pointer initialized = destination;
+			try {
+				initialized = std::uninitialized_fill_n(destination, newSize, value);
+			}
+			catch (...) {
+				destroy(destination, initialized);
+				free(destination);
 			}
 			return destination;
 		}
@@ -99,125 +129,177 @@ namespace lmnop {
 		using size_type       = std::size_t;
 		using difference_type = std::ptrdiff_t;
 
-		using iterator = Iterator;
-		using const_iterator = Const_Iterator;
+		using iterator        = Iterator;
+		using const_iterator  = Const_Iterator;
 	public:
 		//CONSTRUCTORS
 		constexpr SequenceM()noexcept = default;
-		SequenceM(std::initializer_list<value_type> init) requires std::copyable<value_type> {
-			copyConstruct(init.begin(), init.end(), init.size());
+		SequenceM(size_type count) {
+			if (count > 0) {
+				construct(allocator.defaultConstructN(count),count);
+			}
 		}
-		SequenceM(const SequenceM<value_type>& rhs) requires std::copyable<value_type> {
-			copyConstruct(rhs.raw_begin(), rhs.raw_end(), rhs.size());
+		SequenceM(size_type count, const_reference value) {
+			if (count > 0) {//if we pass a reference object then how tf can it be 0? idk but the check is fine
+				construct(allocator.fillConstructN(count, value), count);
+			}
+		}
+		SequenceM(std::initializer_list<value_type> init) {
+			size_type size = init.size();
+			if (size > 0) {
+				construct(
+					allocator.copyConstruct(init.begin(), init.end(), size),
+					size
+				);
+			}
+		}
+		SequenceM(const SequenceM<value_type>& rhs) {
+			size_type size = rhs.size();
+			if (size > 0) {
+				construct(
+					allocator.copyConstruct(rhs.cpBegin(), rhs.cpEnd(), size),
+					size
+				);
+			}
+		}
+		constexpr SequenceM(SequenceM<value_type>&& rhs)noexcept {
+			mArray     = std::exchange(rhs.mArray, nullptr);
+			mValidSize = std::exchange(rhs.mValidSize, 0);
+			mTotalSize = std::exchange(rhs.mTotalSize, 0);
+			mCapacity  = std::exchange(rhs.mCapacity, 0);
+		}
+		SequenceM& operator=(SequenceM<value_type> rhs)noexcept {
+			rhs.swap(*this);
+			return *this;
+		}
+		SequenceM& operator=(std::initializer_list<value_type> ilist) {
+			SequenceM<value_type> temp = ilist;
+			temp.swap(*this);
+			return *this;
+		}
+		~SequenceM()noexcept {
+			if (mTotalSize > 0) {
+				allocator.destroy(pBegin(), pRealEnd());
+				mTotalSize = 0;
+				mValidSize = 0;
+			}
+			if (mCapacity > 0) {
+				allocator.free(data());
+				mCapacity = 0;
+				mArray = nullptr;
+			}
 		}
 
-
-		//###################################################################
 		//GETTERS
-		constexpr bool is_empty()const noexcept               { return mPublicSize == ZERO__SM; }
-		constexpr bool is_empty_buffer() const noexcept       { return mBufferSize == ZERO__SM; }
-		constexpr bool is_sequence_allocated() const noexcept { return mArray != nullptr; }
+		constexpr bool empty_valid()const noexcept               { return mValidSize == ZERO__SM; }
+		constexpr bool empty_total()const noexcept               { return mTotalSize == ZERO__SM; }
+		constexpr bool is_sequence_allocated() const noexcept    { return mArray != nullptr; }
 
-		constexpr size_type size()const noexcept              { return mPublicSize; }
-		constexpr size_type size_buffer() const noexcept      { return mBufferSize; }
-		constexpr size_type size_total()const noexcept        { return mTotalSize; }
+		constexpr size_type size()const noexcept                 { return mValidSize; }
+		constexpr size_type size_total()const noexcept           { return mTotalSize; }
+		constexpr size_type capacity()const noexcept             { return mCapacity; }
 
-		constexpr iterator       begin()                      { return  mArray ; }
-		constexpr iterator       end()                        { return  mArray + mPublicSize; }
-		constexpr const_iterator begin()const                 { return  mArray; }
-		constexpr const_iterator end()const                   { return  mArray + mPublicSize; }
-		constexpr const_iterator cbegin()const                { return  mArray; }
-		constexpr const_iterator cend()const                  { return  mArray + mPublicSize; }
+		constexpr iterator       begin()                         { return  mArray ; }
+		constexpr iterator       end()                           { return  mArray + mValidSize; }
+		constexpr const_iterator begin()const                    { return  mArray; }
+		constexpr const_iterator end()const                      { return  mArray + mValidSize; }
+		constexpr const_iterator cbegin()const                   { return  mArray; }
+		constexpr const_iterator cend()const                     { return  mArray + mValidSize; }
 
+		/* CHANGE THEM TO TAKE FUNCTIONS size() later... */
 		constexpr reference       front() {
-			assert(mPublicSize > ZERO__SM);
+			assert(mValidSize > ZERO__SM);
 			return mArray[ZERO__SM];
 		}
 		constexpr const_reference front()const {
-			assert(mPublicSize > ZERO__SM);
+			assert(mValidSize > ZERO__SM);
 			return mArray[ZERO__SM];
 		}
 		constexpr reference       back() {
-			assert(mPublicSize > ZERO__SM);
-			return mArray[mPublicSize - 1];
+			assert(mValidSize > ZERO__SM);
+			return mArray[mValidSize - 1];
 		}
 		constexpr const_reference back()const {
-			assert(mPublicSize > ZERO__SM);
-			return mArray[mPublicSize - 1];
+			assert(mValidSize > ZERO__SM);
+			return mArray[mValidSize - 1];
 		}
 		constexpr reference       operator[](size_type index) {
-			assert(index < mPublicSize);
+			assert(index < mValidSize);
 			return mArray[index];
 		}
 		constexpr const_reference operator[](size_type index)const {
-			assert(index < mPublicSize);
+			assert(index < mValidSize);
 			return mArray[index];
 		}
 		constexpr reference       at(size_type pos) {
-			if (pos >= mPublicSize)
+			if (pos >= mValidSize)
 				throw std::out_of_range("position out of range");
 			return mArray[pos];
 		}
 		constexpr const_reference at(size_type pos)const {
-			if (pos >= mPublicSize)
+			if (pos >= mValidSize)
 				throw std::out_of_range("position out of range");
 			return mArray[pos];
 		}
-		//###################################################################
+		
+		//UTILITY
+		constexpr void swap(SequenceM<value_type>& rhs)noexcept {
+			pointer tempA = mArray;
+			mArray = rhs.mArray;
+			rhs.mArray = tempA;
 
-		constexpr swap(SequenceM<value_type>& rhs)noexcept {
-			std::swap(mArray,      rhs.mArray);
-			std::swap(mPublicSize, rhs.mPublicSize);
-			std::swap(mTotalSize,  rhs.mTotalSize);
-			std::swap(mBufferSize, rhs.mBufferSize);
-			std::swap(mCapacity,   rhs.mCapacity);
-			std::swap(mAutoSize,   rhs.mAutoSize);
-			std::swap(isAuto,      rhs.isAuto);
+			size_type tempB = mValidSize;
+			mValidSize = rhs.mValidSize;
+			rhs.mValidSize = tempB;
+
+			size_type tempC = mTotalSize;
+			mTotalSize = rhs.mTotalSize;
+			rhs.mTotalSize = tempC;
+
+			size_type tempD = mCapacity;
+			mCapacity = rhs.mCapacity;
+			rhs.mCapacity = tempD;
 		}
 
 	private:
-		constexpr pointer raw_begin()    { return mArray; }
-		constexpr pointer raw_end()      { return mArray + mPublicSize; }
-		constexpr pointer raw_real_end() { return mArray + mTotalSize; }
+		constexpr pointer data()                 { return mArray; }
+		constexpr pointer pBegin()               { return mArray; }
+		constexpr pointer pEnd()                 { return mArray + mValidSize; }
+		constexpr pointer pRealEnd()             { return mArray + mTotalSize; }
+		constexpr const_pointer cpBegin()const   { return mArray; }
+		constexpr const_pointer cpEnd()const     { return mArray + mValidSize; }
+		constexpr const_pointer cpRealEnd()const { return mArray + mTotalSize; }
 
 		void grow(size_type newSize) {
-			pointer temp = allocator.reallocate(raw_begin(), raw_real_end(), newSize);
-			allocator.destroy(raw_begin(), raw_real_end());
-			allocator.free(raw_begin());
+			pointer temp = allocator.reallocate(pBegin(), pRealEnd(), newSize);
+			allocator.destroy(pBegin(), pRealEnd());
+			allocator.free(data());
 
 			mArray = temp;
-			cap = newSize;
+			mCapacity = newSize;
 			//size does not change on reallocation
 		}
-		void copyConstruct(pointer begin, pointer end, size_type size) {
-			if (size > 0) {
-				pointer temp = allocator.copyConstruct(begin, end, size);
-
-				mArray = temp;
-				mPublicSize = size;
-				mTotalSize = size;
-				mCapacity = size;
-				//other vairables related to class behavior are set manually...
-			}
+		void construct(pointer data, size_type size) {
+			mArray     = data;
+			mValidSize = size;
+			mTotalSize = size;
+			mCapacity  = size;
 		}
 
 	private:
 		//main variables
-		pointer     mArray = nullptr;
-		size_type   mPublicSize    = 0;
+		pointer     mArray         = nullptr;
+		size_type   mValidSize     = 0;
 		size_type   mTotalSize     = 0;
 		size_type   mCapacity      = 0;
 		SMAllocator<value_type> allocator;
-		//the clutch variables
-		size_type   mBufferSize    = 0;
-		size_type   mAutoSize      = 0;
-		bool isAuto = false;
 		//bs
 		static constexpr size_type ZERO__SM = 0;
 	};
 
-
+	//iterators
 	template<typename T>
+	requires fully_defined_T<T>
 	class SequenceM<T>::Iterator {
 	public:
 		using value_type = T;
@@ -255,6 +337,7 @@ namespace lmnop {
 	};
 
 	template<typename T>
+	requires fully_defined_T<T>
 	class SequenceM<T>::Const_Iterator {
 	public:
 		using value_type = const T;
