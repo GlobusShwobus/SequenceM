@@ -230,32 +230,42 @@ namespace lmnop {
 			rhs.mCapacity = tempD;
 		}
 		//MODIFICATION
-		void reserve(size_type capacity) {
-			if (capacity > mCapacity) {
-				grow(capacity);
+		void reserve(size_type new_cap) {
+			if (new_cap > mCapacity) {
+				reallocate(pBegin(), pRealEnd(), new_cap);//when reserving, implies need to copy over everything
 			}
+		}
+		void shrinkToFit() {
+			if (mCapacity > mValidSize) {
+				reallocate(pBegin(), pValidEnd(), mValidSize);//when shrinking, implies need to shrink to only valid count
+				mTotalSize = mValidSize;
+			}
+		}
+		void resize_shrink(size_type shrink_to)noexcept {
+			if (shrink_to >= mTotalSize) return;
+			//when resizing down, it is allowed to cut off buffered (off the end elems),
+			//but logically is not allowed to cut off past that (shrinking, not growing)
+
+			allocator.destroy(pBegin() + shrink_to, pRealEnd());
+			mTotalSize = shrink_to;
+			mValidSize = (shrink_to < mValidSize) ? shrink_to : mValidSize;
 		}
 
 	private:
 		constexpr pointer data()                 { return mArray; }
 		constexpr pointer pBegin()               { return mArray; }
-		constexpr pointer pEnd()                 { return mArray + mValidSize; }
+		constexpr pointer pValidEnd()            { return mArray + mValidSize; }
 		constexpr pointer pRealEnd()             { return mArray + mTotalSize; }
-		constexpr const_pointer cpBegin()const   { return mArray; }
-		constexpr const_pointer cpEnd()const     { return mArray + mValidSize; }
-		constexpr const_pointer cpRealEnd()const { return mArray + mTotalSize; }
 
-		void grow(size_type newSize) {
-			pointer begin = pBegin();
-			pointer rEnd  = pRealEnd();
-
-			pointer temp = allocator.allocConstruct([begin, rEnd](pointer dest, size_type n) {
-				return std::uninitialized_move(begin, rEnd, dest);
+		void reallocate(pointer from, pointer to, size_type newSize) {
+			//when reallocating, the range is not always known, thus iterate from -> to, but cleaning up old is always known
+			pointer temp = allocator.allocConstruct([from, to](pointer dest, size_type n) {
+				return std::uninitialized_move(from, to, dest);
 				},
 				newSize
 			);
-			allocator.destroy(begin, rEnd);
-			allocator.free(begin);
+			allocator.destroy(pBegin(), pRealEnd());
+			allocator.free(data());
 
 			mArray = temp;
 			mCapacity = newSize;
@@ -267,17 +277,22 @@ namespace lmnop {
 			mTotalSize = size;
 			mCapacity  = size;
 		}
-		constexpr size_type growthFactor(size_type seed)const { return seed + (seed / 1.8) + 1; }
+		constexpr size_type growthFactor(size_type seed)const { return seed + (seed / mGrowthResistor) + 1; }
 
 	private:
 		//main variables
-		pointer     mArray         = nullptr;
-		size_type   mValidSize     = 0;
-		size_type   mTotalSize     = 0;
-		size_type   mCapacity      = 0;
+		pointer     mArray          = nullptr;
+		size_type   mValidSize      = 0;
+		size_type   mTotalSize      = 0;
+		size_type   mCapacity       = 0;
+		float       mGrowthResistor = GROWTH_INTERMEDIATE;
 		SMAllocator<value_type> allocator;
 		//bs
+		/*TODO: add setters later*/
 		static constexpr size_type ZERO__SM = 0;
+		static constexpr float GROWTH_LIGHT = 2.5f;
+		static constexpr float GROWTH_INTERMEDIATE = 2.0f;
+		static constexpr float GROWTH_AGGRESSIVE = 1.0f;
 	};
 
 	//iterators
