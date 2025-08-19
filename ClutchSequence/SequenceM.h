@@ -69,9 +69,24 @@ namespace lmnop {
 			catch (...) {
 				destroy(destination, initialized);
 				free(destination);
+				throw;
 			}
 			return destination;
 		}
+
+		void constructAdditional(pointer source, size_type count)
+		requires std::default_initializable<value_type>
+		{
+			pointer initalized = source;
+			try {
+				initalized = std::uninitialized_value_construct_n(source, count);
+			}
+			catch (...) {
+				destroy(source, initalized);
+				throw;
+			}
+		}
+
 	};
 
 	template<typename T>
@@ -100,7 +115,7 @@ namespace lmnop {
 		SequenceM(size_type count) {
 			if (count > ZERO__SM) {
 				construct(allocator.allocConstruct([](pointer dest, size_type n) {
-						return std::uninitialized_default_construct_n(dest, n);
+						return std::uninitialized_value_construct_n(dest, n);
 						},
 					count), count);
 			}
@@ -229,13 +244,25 @@ namespace lmnop {
 			mCapacity = rhs.mCapacity;
 			rhs.mCapacity = tempD;
 		}
+		
 		//MODIFICATION
-		void reserve(size_type new_cap) {
+		void reserve_bytes(size_type new_cap) {
 			if (new_cap > mCapacity) {
 				reallocate(pBegin(), pRealEnd(), new_cap);//when reserving, implies need to copy over everything
 			}
 		}
-		void shrinkToFit() {
+		void reserve_constructed(size_type count) {
+			if (count > (mTotalSize - mValidSize)) { //when reserving constructed elements, count should be higher than the already reserved elements
+				
+				if (count + mTotalSize > mCapacity) {
+					reallocate(pBegin(), pRealEnd(), count + mTotalSize);
+				}
+
+				allocator.constructAdditional(pRealEnd(), count);
+				mTotalSize += count;
+			}
+		}
+		void shrink_to_fit() {
 			if (mCapacity > mValidSize) {
 				reallocate(pBegin(), pValidEnd(), mValidSize);//when shrinking, implies need to shrink to only valid count
 				mTotalSize = mValidSize;
@@ -250,6 +277,19 @@ namespace lmnop {
 			mTotalSize = shrink_to;
 			mValidSize = (shrink_to < mValidSize) ? shrink_to : mValidSize;
 		}
+		void resize_grow(size_type grow_to, value_type value) {
+			if (grow_to <= mValidSize) return;
+			//when growing, it implies we want to grow in the valid range direction
+
+			//taking an argument by value type enables rvalue function calling ("my string"),
+			//but is a heads up if a named type is inserted
+			
+			//buffer zone values are INITALIZED, meaning can't just plug them in, at least not atm in this API
+			//should use assignment operator on them
+
+			//otherwise use uninitalized fill_n
+		}
+
 
 	private:
 		constexpr pointer data()                 { return mArray; }
