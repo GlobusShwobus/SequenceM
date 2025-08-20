@@ -246,20 +246,26 @@ namespace lmnop {
 		}
 		
 		//MODIFICATION
-		void reserve_bytes(size_type new_cap) {
+		void set_capacity(size_type new_cap) {
 			if (new_cap > mCapacity) {
 				reallocate(pBegin(), pRealEnd(), new_cap);//when reserving, implies need to copy over everything
 			}
 		}
-		void reserve_constructed(size_type count) {
-			if (count > (mTotalSize - mValidSize)) { //when reserving constructed elements, count should be higher than the already reserved elements
+		void set_reserve_size(size_type reserve_size) {
+			
+			size_type current_reserve = mTotalSize - mValidSize;
+			
+			if (reserve_size > current_reserve) {
+
+				size_type difference_count = reserve_size - current_reserve;
+				//reserve_size must be greater than the difference between total - valid, otherwise existing storage is enough
 				
-				if (count + mTotalSize > mCapacity) {
-					reallocate(pBegin(), pRealEnd(), count + mTotalSize);
+				if (mTotalSize + difference_count > mCapacity) {
+					reallocate(pBegin(), pRealEnd(), growthFactor(mTotalSize + difference_count));
 				}
 
-				allocator.constructAdditional(pRealEnd(), count);
-				mTotalSize += count;
+				allocator.constructAdditional(pRealEnd(), difference_count);
+				mTotalSize += difference_count;
 			}
 		}
 		void shrink_to_fit() {
@@ -268,7 +274,7 @@ namespace lmnop {
 				mTotalSize = mValidSize;
 			}
 		}
-		void resize_shrink(size_type shrink_to)noexcept {
+		void shrink_to(size_type shrink_to)noexcept {
 			if (shrink_to >= mTotalSize) return;
 			//when resizing down, it is allowed to cut off buffered (off the end elems),
 			//but logically is not allowed to cut off past that (shrinking, not growing)
@@ -330,7 +336,7 @@ namespace lmnop {
 		//bs
 		/*TODO: add setters later*/
 		static constexpr size_type ZERO__SM = 0;
-		static constexpr float GROWTH_LIGHT = 2.5f;
+		static constexpr float GROWTH_LIGHT = 3.0f;
 		static constexpr float GROWTH_INTERMEDIATE = 2.0f;
 		static constexpr float GROWTH_AGGRESSIVE = 1.0f;
 	};
