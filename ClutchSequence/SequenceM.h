@@ -175,14 +175,6 @@ namespace lmnop {
 		}
 
 		//GETTERS
-		constexpr bool empty_valid()const noexcept               { return mValidSize == ZERO__SM; }
-		constexpr bool empty_total()const noexcept               { return mTotalSize == ZERO__SM; }
-		constexpr bool is_sequence_allocated() const noexcept    { return mArray != nullptr; }
-
-		constexpr size_type size()const noexcept                 { return mValidSize; }
-		constexpr size_type size_total()const noexcept           { return mTotalSize; }
-		constexpr size_type capacity()const noexcept             { return mCapacity; }
-
 		constexpr iterator       begin()                         { return  mArray ; }
 		constexpr iterator       end()                           { return  mArray + mValidSize; }
 		constexpr const_iterator begin()const                    { return  mArray; }
@@ -226,7 +218,102 @@ namespace lmnop {
 			return mArray[pos];
 		}
 		
+		//ADD/REMOVE
+		template <typename U>
+		void element_assign(U&& value)
+		requires std::convertible_to<U, value_type> && std::constructible_from<value_type, U&&> {
+			if (mTotalSize == mCapacity)
+				reallocate(pBegin(), pRealEnd(), growthFactor(mCapacity));
+			
+			//since old objects are preserved, need to handle either move assignment or move construction
+			pointer slot = pValidEnd();
+			if (has_reserve()) {
+				*slot = std::forward<U>(value);
+			}
+			else {// validEnd == realEnd
+				std::construct_at(slot, std::forward<U>(value));
+				++mTotalSize;
+			}
+
+			++mValidSize;
+		}
+		template<typename... Args>
+		void element_create(Args&&... args)
+		requires std::constructible_from<value_type, Args&&...> {
+			if (mTotalSize == mCapacity)
+				reallocate(pBegin(), pRealEnd(), growthFactor(mCapacity));
+			pointer slot = pValidEnd();
+
+			if (has_reserve()) {
+				*slot = value_type(std::forward<Args>(args)...);
+			}
+			else {//validEnd == realEnd
+				std::construct_at(slot, std::forward<Args>(args)...);
+				++mTotalSize;
+			}
+
+			++mValidSize;
+		}
+
+		//RESERVE/CAPACITY
+		void set_capacity(size_type new_cap) {
+			if (new_cap > mCapacity) {
+				reallocate(pBegin(), pRealEnd(), new_cap);//when reserving, implies need to copy over everything
+			}
+		}
+		void set_reserve_size(size_type reserve_size) {
+			size_type current_reserve = mTotalSize - mValidSize;
+
+			if (reserve_size < current_reserve) return;
+
+			size_type difference_count = reserve_size - current_reserve;
+
+			if (mTotalSize + difference_count > mCapacity)
+				reallocate(pBegin(), pRealEnd(), growthFactor(mTotalSize + difference_count));
+
+			allocator.constructAdditional(pRealEnd(), difference_count);
+			mTotalSize += difference_count;
+		}
+		void shrink_to_fit() {
+			if (mCapacity > mValidSize) {
+				reallocate(pBegin(), pValidEnd(), mValidSize);//when shrinking, implies need to shrink to only valid count
+				mTotalSize = mValidSize;
+			}
+		}
+		void shrink_to(size_type shrink_to)noexcept {
+			if (shrink_to >= mTotalSize) return;
+			//when resizing down, it is allowed to cut off buffered (off the end elems),
+			//but logically is not allowed to cut off past that (shrinking, not growing)
+
+			allocator.destroy(pBegin() + shrink_to, pRealEnd());
+			mTotalSize = shrink_to;
+			mValidSize = (shrink_to < mValidSize) ? shrink_to : mValidSize;
+		}
+		/*
+		* PROBABLY DOESN'T ACTUALLY MAKE SENSE TO HAVE, SUBEJCT TO FUTURE CHANGE IF AT ALL
+		void resize_grow(size_type grow_to, value_type value) {
+			if (grow_to <= mValidSize) return;
+			//when growing, it implies we want to grow in the valid range direction
+
+			//taking an argument by value type enables rvalue function calling ("my string"),
+			//but is a heads up if a named type is inserted
+			
+			//buffer zone values are INITALIZED, meaning can't just plug them in, at least not atm in this API
+			//should use assignment operator on them
+
+			//otherwise use uninitalized fill_n
+		}
+		*/
+
 		//UTILITY
+		constexpr bool empty_valid()const noexcept              { return mValidSize == ZERO__SM; }
+		constexpr bool empty_total()const noexcept              { return mTotalSize == ZERO__SM; }
+		constexpr bool is_sequence_allocated() const noexcept   { return mArray != nullptr; }
+															   
+		constexpr size_type size()const noexcept                { return mValidSize; }
+		constexpr size_type size_total()const noexcept          { return mTotalSize; }
+		constexpr size_type capacity()const noexcept            { return mCapacity; }
+		constexpr bool      has_reserve()const noexcept         { return (mTotalSize - mValidSize) > ZERO__SM; }
 		constexpr void swap(SequenceM<value_type>& rhs)noexcept {
 			pointer tempA = mArray;
 			mArray = rhs.mArray;
@@ -244,58 +331,6 @@ namespace lmnop {
 			mCapacity = rhs.mCapacity;
 			rhs.mCapacity = tempD;
 		}
-		
-		//MODIFICATION
-		void set_capacity(size_type new_cap) {
-			if (new_cap > mCapacity) {
-				reallocate(pBegin(), pRealEnd(), new_cap);//when reserving, implies need to copy over everything
-			}
-		}
-		void set_reserve_size(size_type reserve_size) {
-			
-			size_type current_reserve = mTotalSize - mValidSize;
-			
-			if (reserve_size > current_reserve) {
-
-				size_type difference_count = reserve_size - current_reserve;
-				//reserve_size must be greater than the difference between total - valid, otherwise existing storage is enough
-				
-				if (mTotalSize + difference_count > mCapacity) {
-					reallocate(pBegin(), pRealEnd(), growthFactor(mTotalSize + difference_count));
-				}
-
-				allocator.constructAdditional(pRealEnd(), difference_count);
-				mTotalSize += difference_count;
-			}
-		}
-		void shrink_to_fit() {
-			if (mCapacity > mValidSize) {
-				reallocate(pBegin(), pValidEnd(), mValidSize);//when shrinking, implies need to shrink to only valid count
-				mTotalSize = mValidSize;
-			}
-		}
-		void shrink_to(size_type shrink_to)noexcept {
-			if (shrink_to >= mTotalSize) return;
-			//when resizing down, it is allowed to cut off buffered (off the end elems),
-			//but logically is not allowed to cut off past that (shrinking, not growing)
-
-			allocator.destroy(pBegin() + shrink_to, pRealEnd());
-			mTotalSize = shrink_to;
-			mValidSize = (shrink_to < mValidSize) ? shrink_to : mValidSize;
-		}
-		void resize_grow(size_type grow_to, value_type value) {
-			if (grow_to <= mValidSize) return;
-			//when growing, it implies we want to grow in the valid range direction
-
-			//taking an argument by value type enables rvalue function calling ("my string"),
-			//but is a heads up if a named type is inserted
-			
-			//buffer zone values are INITALIZED, meaning can't just plug them in, at least not atm in this API
-			//should use assignment operator on them
-
-			//otherwise use uninitalized fill_n
-		}
-
 
 	private:
 		constexpr pointer data()                 { return mArray; }
@@ -324,7 +359,6 @@ namespace lmnop {
 			mCapacity  = size;
 		}
 		constexpr size_type growthFactor(size_type seed)const { return seed + (seed / mGrowthResistor) + 1; }
-
 	private:
 		//main variables
 		pointer     mArray          = nullptr;
