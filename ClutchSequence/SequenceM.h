@@ -254,6 +254,43 @@ namespace lmnop {
 
 			++mValidSize;
 		}
+		void element_disable_back()noexcept {
+			if (mValidSize > ZERO__SM) {
+				--mValidSize;
+			}
+		}
+		iterator element_disable(iterator pos) {
+			pointer target = pos.base();
+			pointer begin = pBegin();
+			pointer end = pValidEnd();
+
+			assert(target >= begin && target <= end);
+			if (target == end) return end;
+
+			std::move(target + 1, end, target);
+			--mValidSize;
+
+			return (target == pValidEnd()) ? pValidEnd() : target;
+		}
+		iterator element_disable_range(iterator first, iterator last) {
+			pointer target_begin = first.base();
+			pointer target_end = last.base();
+			pointer array_begin = pBegin();
+			pointer array_end = pValidEnd();
+
+			assert(target_begin >= array_begin && target_begin <= array_end && target_end >= array_begin && target_end <= array_end && target_end >= target_begin);
+			if (target_begin == target_end || target_begin == array_end) return array_end;
+
+
+			if (target_end != array_end) {
+				std::move(target_end, array_end, target_begin);
+			}
+			mValidSize -= (target_end - target_begin);
+
+			return (target_begin == pValidEnd()) ? pValidEnd() : target_begin;
+		}
+
+
 
 		//RESERVE/CAPACITY
 		void set_capacity(size_type new_cap) {
