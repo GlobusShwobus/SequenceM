@@ -1,24 +1,4 @@
 #pragma once
-/*
-BASIC DRAFT
-
-have a larger contiguous array of T elements on the heap.
-same as base with size refering to the valid elements.
-iterators also refer to one off the end of valid and begin. 
-the difference is instead of immediately destroying object, the "undesireble" objects are moved past the end point,
-but obviously stay within capacity. 
-there the elements would stay dormant.
-if a new element is created, if would first check if there are valid elements in the "junk section"
-and if yes it would simply move into them. saving creation deletion cycles.
-there would also be extra utility public API to manually clean up the junk pile,
-maybe even extra functionality like a car and have manual/automatic switches where it would auto clean up a large junk tail 
-but not all of it (leave the clutch amount so to speak)
-
-CAN NOT BE CONST T
-MUST BE MOVABLE
-PUSH BACK/INSERT IDEALLY PREFER NON CONST T& TO SQUEEZE OUT MOVE
-USE UNIQUE_PTR FOR ARRAY INSTEAD OF RAW ARRAY (UNFORTUNATELY I DON'T THINK IT'S QUITE SO POSSIBLE, or at least fucky as fuck)
-*/
 
 #include <assert.h>
 #include <stdexcept>
@@ -110,8 +90,6 @@ namespace lmnop {
 	public:
 		//CONSTRUCTORS
 		constexpr SequenceM()noexcept = default;
-		
-		
 		SequenceM(size_type count) {
 			if (count > ZERO__SM) {
 				construct(allocator.allocConstruct([](pointer dest, size_type n) {
@@ -254,12 +232,12 @@ namespace lmnop {
 
 			++mValidSize;
 		}
-		void element_disable_back()noexcept {
+		void depricate_back()noexcept {
 			if (mValidSize > ZERO__SM) {
 				--mValidSize;
 			}
 		}
-		iterator element_disable(iterator pos) {
+		iterator depricate_ordered(iterator pos) {
 			pointer target = pos.base();
 			pointer begin = pBegin();
 			pointer end = pValidEnd();
@@ -272,7 +250,7 @@ namespace lmnop {
 
 			return (target == pValidEnd()) ? pValidEnd() : target;
 		}
-		iterator element_disable_range(iterator first, iterator last) {
+		iterator depricate_ordered(iterator first, iterator last) {
 			pointer target_begin = first.base();
 			pointer target_end = last.base();
 			pointer array_begin = pBegin();
@@ -281,7 +259,6 @@ namespace lmnop {
 			assert(target_begin >= array_begin && target_begin <= array_end && target_end >= array_begin && target_end <= array_end && target_end >= target_begin);
 			if (target_begin == target_end || target_begin == array_end) return array_end;
 
-
 			if (target_end != array_end) {
 				std::move(target_end, array_end, target_begin);
 			}
@@ -289,8 +266,38 @@ namespace lmnop {
 
 			return (target_begin == pValidEnd()) ? pValidEnd() : target_begin;
 		}
+		iterator depricate_unordered(iterator pos) {
+			pointer target = pos.base();
+			pointer begin = pBegin();
+			pointer end = pValidEnd();
 
+			assert(target >= begin && target <= end);
+			if (target == end)return end;
 
+			--end;
+			*target = std::move(*end);
+			--mValidSize;
+			return (target == pValidEnd()) ? pValidEnd() : target;
+		}
+		template <typename Condition>
+		iterator depricate_unordered(Condition condition) requires std::predicate<Condition, const_reference> {
+			pointer current = pBegin();
+			pointer valid_last = pValidEnd() - 1;
+			size_type decrease_size = 0;
+			
+			while (current <= valid_last) {
+				if (condition(*current)) {
+					*current = std::move(*valid_last);
+					--valid_last;
+					++decrease_size;
+				}
+				else {
+					++current;
+				}
+			}
+			mValidSize -= decrease_size;
+			return pValidEnd();
+		}
 
 		//RESERVE/CAPACITY
 		void set_capacity(size_type new_cap) {
@@ -326,21 +333,6 @@ namespace lmnop {
 			mTotalSize = shrink_to;
 			mValidSize = (shrink_to < mValidSize) ? shrink_to : mValidSize;
 		}
-		/*
-		* PROBABLY DOESN'T ACTUALLY MAKE SENSE TO HAVE, SUBEJCT TO FUTURE CHANGE IF AT ALL
-		void resize_grow(size_type grow_to, value_type value) {
-			if (grow_to <= mValidSize) return;
-			//when growing, it implies we want to grow in the valid range direction
-
-			//taking an argument by value type enables rvalue function calling ("my string"),
-			//but is a heads up if a named type is inserted
-			
-			//buffer zone values are INITALIZED, meaning can't just plug them in, at least not atm in this API
-			//should use assignment operator on them
-
-			//otherwise use uninitalized fill_n
-		}
-		*/
 
 		//UTILITY
 		constexpr bool empty_valid()const noexcept              { return mValidSize == ZERO__SM; }
@@ -351,6 +343,11 @@ namespace lmnop {
 		constexpr size_type size_total()const noexcept          { return mTotalSize; }
 		constexpr size_type capacity()const noexcept            { return mCapacity; }
 		constexpr bool      has_reserve()const noexcept         { return (mTotalSize - mValidSize) > ZERO__SM; }
+		
+		constexpr void set_growth_low()noexcept                 { mGrowthResistor = GROWTH_LIGHT; }
+		constexpr void set_growth_average()noexcept             { mGrowthResistor = GROWTH_INTERMEDIATE; }
+		constexpr void set_growth_high()noexcept                { mGrowthResistor = GROWTH_AGGRESSIVE; }
+		
 		constexpr void swap(SequenceM<value_type>& rhs)noexcept {
 			pointer tempA = mArray;
 			mArray = rhs.mArray;
