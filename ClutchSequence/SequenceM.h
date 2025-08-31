@@ -26,10 +26,10 @@ namespace lmnop {
 
 	public:
 
-		pointer alloc(size_type count)noexcept {
+		pointer alloc(size_type count) {
 			return static_cast<pointer>(::operator new(count * sizeof(value_type)));
 		}
-		void free(pointer mem)noexcept {
+		void free(pointer mem) {
 			::operator delete(mem);
 		}
 		constexpr void destroy(pointer begin, pointer end) requires std::destructible<value_type> {
