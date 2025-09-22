@@ -342,11 +342,9 @@ namespace lmnop {
 			return mArray[mValidSize - 1];
 		}
 		constexpr reference       operator[](size_type index) {
-			out_of_range_access(index);
 			return mArray[index];
 		}
 		constexpr const_reference operator[](size_type index)const {
-			out_of_range_access(index);
 			return mArray[index];
 		}
 		constexpr reference       at(size_type index) {
@@ -394,7 +392,7 @@ namespace lmnop {
 				throw std::out_of_range("position out of range");
 			//assert(mValidSize > EMPTY_GUARD); if check is slow in testing, opt for assert instead
 		}
-		constexpr inline void out_of_range_access(size_type index) {
+		constexpr inline void out_of_range_access(size_type index)const {
 			if (index >= mValidSize)
 				throw std::out_of_range("position out of range");
 			//assert(mValidSize > EMPTY_GUARD && index < mValidSize); if check is slow in testing, opt for assert instead
