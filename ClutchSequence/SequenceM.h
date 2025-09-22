@@ -387,7 +387,7 @@ namespace lmnop {
 		//growth math
 		constexpr size_type growthFactor(size_type seed)const { return (size_type)seed + (seed / mGrowthResistor) + 1; }
 		//error consolidation
-		constexpr inline void empty_array_error() {
+		constexpr inline void empty_array_error()const {
 			if (empty_in_use())
 				throw std::out_of_range("position out of range");
 			//assert(mValidSize > EMPTY_GUARD); if check is slow in testing, opt for assert instead
