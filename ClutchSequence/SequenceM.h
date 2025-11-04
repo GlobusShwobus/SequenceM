@@ -2,18 +2,9 @@
 
 #include <stdexcept>
 #include <memory>
-#include <concepts>
+#include "badUtility.h"
 
-namespace lmnop {
-
-	template <typename T>
-	concept fully_defined_T = std::default_initializable<T> &&
-		std::copyable<T> &&
-		std::is_nothrow_move_constructible_v<T> &&
-		std::is_nothrow_move_assignable_v<T> &&
-		std::destructible<T> &&
-		!std::is_const_v<T>;
-
+namespace badEngine {
 	template<typename T>
 	class badAllocator {
 
@@ -69,7 +60,7 @@ namespace lmnop {
 	};
 
 	template<typename T>
-		requires fully_defined_T<T>
+		requires IS_RULE_OF_FIVE_CLASS_T<T>
 	class SequenceM {
 	private:
 		class Iterator;
@@ -115,10 +106,10 @@ namespace lmnop {
 			}
 		}
 		SequenceM(const SequenceM<value_type>& rhs) {
-			size_type size = rhs.size();
+			size_type size = rhs.size_in_use();
 			if (size > EMPTY_GUARD) {
 				construct(allocator.alloc_and_construct([&rhs](pointer dest, size_type n) {
-					return uninitialized_copy(rhs.begin(), rhs.end(), dest);
+					return std::uninitialized_copy(rhs.begin(), rhs.end(), dest);
 					},
 					size), size);
 			}
@@ -160,6 +151,7 @@ namespace lmnop {
 		}
 
 		//ITERATORS
+		constexpr pointer        data() { return  mArray; }
 		constexpr iterator       begin() { return  mArray; }
 		constexpr iterator       end() { return  mArray + mValidSize; }
 		constexpr const_iterator begin()const { return  mArray; }
@@ -358,7 +350,6 @@ namespace lmnop {
 
 	private:
 		//private access
-		constexpr pointer data() { return mArray; }
 		constexpr pointer pBegin() { return mArray; }
 		constexpr pointer pValidEnd() { return mArray + mValidSize; }
 		constexpr pointer pRealEnd() { return mArray + mTotalSize; }
@@ -385,7 +376,7 @@ namespace lmnop {
 			mGrowthResistor = GROWTH_MEDIUM_RESIST;
 		}
 		//growth math
-		constexpr size_type growthFactor(size_type seed)const { return (size_type)seed + (seed / mGrowthResistor) + 1; }
+		constexpr size_type growthFactor(size_type seed)const { return size_type(seed + (seed / mGrowthResistor) + 1); }
 		//error consolidation
 		constexpr inline void empty_array_error()const {
 			if (empty_in_use())
@@ -415,7 +406,7 @@ namespace lmnop {
 
 	//iterators
 	template<typename T>
-		requires fully_defined_T<T>
+		requires IS_RULE_OF_FIVE_CLASS_T<T>
 	class SequenceM<T>::Iterator {
 	public:
 		using value_type = T;
@@ -489,6 +480,7 @@ namespace lmnop {
 			return ptr <=> rhs.ptr;
 		}
 
+		constexpr Iterator() = default;
 		constexpr Iterator(pointer p) :ptr(p) {}
 		constexpr pointer base()const noexcept {
 			return ptr;
@@ -498,7 +490,7 @@ namespace lmnop {
 	};
 
 	template<typename T>
-		requires fully_defined_T<T>
+		requires IS_RULE_OF_FIVE_CLASS_T<T>
 	class SequenceM<T>::Const_Iterator {
 	public:
 		using value_type = const T;
@@ -562,6 +554,7 @@ namespace lmnop {
 			return ptr <=> rhs.ptr;
 		}
 
+		constexpr Const_Iterator() = default;
 		constexpr Const_Iterator(pointer p) :ptr(p) {}
 		constexpr Const_Iterator(const Iterator& rp) : ptr(rp.base()) {}
 		constexpr pointer base()const noexcept {
