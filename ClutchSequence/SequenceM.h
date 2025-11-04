@@ -2,9 +2,18 @@
 
 #include <stdexcept>
 #include <memory>
-#include "badUtility.h"
+
 
 namespace badEngine {
+	template <typename T>
+	concept IS_RULE_OF_FIVE_CLASS_T = std::default_initializable<T> &&
+		std::copyable<T> &&
+		std::is_nothrow_move_constructible_v<T> &&
+		std::is_nothrow_move_assignable_v<T> &&
+		std::destructible<T> &&
+		!std::is_const_v<T>;
+
+
 	template<typename T>
 	class badAllocator {
 
