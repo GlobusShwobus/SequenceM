@@ -227,7 +227,7 @@ namespace badEngine {
 		//meta data
 		constexpr size_type size()         const noexcept { return mUsableSize;                              }
 		constexpr size_type capacity()     const noexcept { return mCapacity;                                }
-		constexpr size_type storage_left() const noexcept { return (mCapacity - mUsableSize) == EMPTY_GUARD; }
+		constexpr size_type storage_left() const noexcept { return mCapacity - mUsableSize;                  }
 		
 		constexpr bool empty()             const noexcept { return mUsableSize == EMPTY_GUARD;               }
 
