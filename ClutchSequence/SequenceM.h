@@ -28,7 +28,13 @@ namespace badEngine {
 	
 		class Iterator {
 		public:
+			using value_type = T;
+			using difference_type = std::ptrdiff_t;
+			using reference = T&;
+			using pointer = T*;
+			using iterator_category = std::random_access_iterator_tag;
 			using self_type = Iterator;
+
 			constexpr reference operator*()noexcept {
 				return *ptr;
 			}
@@ -103,6 +109,11 @@ namespace badEngine {
 		};
 		class Const_Iterator {
 		public:
+			using value_type = T;
+			using difference_type = std::ptrdiff_t;
+			using reference = const T&;
+			using pointer = const T*;
+			using iterator_category = std::random_access_iterator_tag;
 			using self_type = Const_Iterator;
 			constexpr reference operator*()const noexcept {
 				return *ptr;
