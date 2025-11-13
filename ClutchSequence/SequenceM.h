@@ -8,15 +8,15 @@ namespace badEngine {
 
 	template <typename T>
 	concept IS_SEQUENCE_COMPATIBLE =
-		std::default_initializable<T> &&
-		std::copyable<T> &&//implies movable as well
 		std::destructible<T> &&
-		!std::is_const_v<T>;//also no const storage
+		std::is_nothrow_move_constructible_v<T> &&
+		std::is_nothrow_move_assignable_v<T> &&
+		!std::is_const_v<T>;
 
 	template<typename T>
 		requires IS_SEQUENCE_COMPATIBLE<T>
 	class SequenceM {
-		
+
 		using type = SequenceM<T>;
 		using value_type = T;
 		using pointer = T*;
@@ -25,7 +25,7 @@ namespace badEngine {
 		using const_reference = const T&;
 		using size_type = std::size_t;
 		using difference_type = std::ptrdiff_t;
-	
+
 		class Iterator {
 		public:
 			using value_type = T;
@@ -34,7 +34,6 @@ namespace badEngine {
 			using pointer = T*;
 			using iterator_category = std::random_access_iterator_tag;
 			using self_type = Iterator;
-
 			constexpr reference operator*()noexcept {
 				return *ptr;
 			}
@@ -179,22 +178,22 @@ namespace badEngine {
 			pointer ptr = nullptr;
 		};
 
-		public:
+	public:
 
 		using iterator = Iterator;
 		using const_iterator = Const_Iterator;
 
 		//iterator access
-		constexpr iterator       begin()  noexcept       { return  mArray;               }
-		constexpr iterator       end()    noexcept       { return  mArray + mUsableSize; }
-		constexpr const_iterator begin()  const noexcept { return  mArray;               }
+		constexpr iterator       begin()  noexcept { return  mArray; }
+		constexpr iterator       end()    noexcept { return  mArray + mUsableSize; }
+		constexpr const_iterator begin()  const noexcept { return  mArray; }
 		constexpr const_iterator end()    const noexcept { return  mArray + mUsableSize; }
-		constexpr const_iterator cbegin() const noexcept { return  mArray;               }
+		constexpr const_iterator cbegin() const noexcept { return  mArray; }
 		constexpr const_iterator cend()   const noexcept { return  mArray + mUsableSize; }
 
 		//meta access
-		constexpr pointer          data() noexcept       { return  mArray;               }
-		constexpr const_pointer    data() const noexcept { return  mArray;               }
+		constexpr pointer          data() noexcept { return  mArray; }
+		constexpr const_pointer    data() const noexcept { return  mArray; }
 
 		//basic access
 		constexpr reference front() {
@@ -213,7 +212,7 @@ namespace badEngine {
 			empty_array_error();
 			return mArray[mUsableSize - 1];
 		}
-		constexpr reference       operator[](size_type index)      { return mArray[index]; }
+		constexpr reference       operator[](size_type index) { return mArray[index]; }
 		constexpr const_reference operator[](size_type index)const { return mArray[index]; }
 		constexpr reference at(size_type index) {
 			out_of_range_access(index);
@@ -225,21 +224,21 @@ namespace badEngine {
 		}
 
 		//meta data
-		constexpr size_type size()         const noexcept { return mUsableSize;                              }
-		constexpr size_type capacity()     const noexcept { return mCapacity;                                }
-		constexpr size_type storage_left() const noexcept { return mCapacity - mUsableSize;                  }
-		
-		constexpr bool empty()             const noexcept { return mUsableSize == EMPTY_GUARD;               }
+		constexpr size_type size()         const noexcept { return mUsableSize; }
+		constexpr size_type capacity()     const noexcept { return mCapacity; }
+		constexpr size_type storage_left() const noexcept { return mCapacity - mUsableSize; }
+
+		constexpr bool empty()             const noexcept { return mUsableSize == EMPTY_GUARD; }
 
 		//setters for vector growth reistors
-		constexpr void set_growth_resist_high()     noexcept { mGrowthResistor = GROWTH_HIGH_RESIST;     }
-		constexpr void set_growth_resist_medium()   noexcept { mGrowthResistor = GROWTH_MEDIUM_RESIST;   }
-		constexpr void set_growth_resist_low()      noexcept { mGrowthResistor = GROWTH_LOW_RESIST;      }
+		constexpr void set_growth_resist_high()     noexcept { mGrowthResistor = GROWTH_HIGH_RESIST; }
+		constexpr void set_growth_resist_medium()   noexcept { mGrowthResistor = GROWTH_MEDIUM_RESIST; }
+		constexpr void set_growth_resist_low()      noexcept { mGrowthResistor = GROWTH_LOW_RESIST; }
 		constexpr void set_growth_resist_negative() noexcept { mGrowthResistor = GROWTH_NEGATIVE_RESIST; }
 
 	private:
 		//implementation critical functions
-		
+
 		//memory handlers
 		pointer alloc_memory(size_type count) {
 			return static_cast<pointer>(::operator new(count * sizeof(value_type)));
@@ -253,9 +252,9 @@ namespace badEngine {
 		}
 
 		//internal ptr usage
-		pointer pBegin_mem        ()noexcept       { return mArray; }
-		pointer pEnd_usable       ()noexcept       { return mArray + mUsableSize; }
-		pointer pEnd_constructed  ()noexcept       { return mArray + mConstructedSize; }
+		pointer pBegin_mem()noexcept { return mArray; }
+		pointer pEnd_usable()noexcept { return mArray + mUsableSize; }
+		pointer pEnd_constructed()noexcept { return mArray + mConstructedSize; }
 
 		//growth math
 		constexpr size_type growthFactor(size_type seed)const noexcept {
@@ -286,7 +285,7 @@ namespace badEngine {
 		void reallocate(size_type newSize) {
 			//allocate new chunck of memory of size newSize and move [from -> to] data into it (always move) 
 			pointer from = pBegin_mem();
-			pointer to   = pEnd_usable();
+			pointer to = pEnd_usable();
 			pointer constructedMem = alloc_and_construct([from, to](pointer dest, size_type n) {
 				return std::uninitialized_move(from, to, dest);
 				}, newSize);
@@ -314,7 +313,9 @@ namespace badEngine {
 	public:
 		//constructors
 		constexpr SequenceM()noexcept = default;
-		SequenceM(size_type count) {
+		SequenceM(size_type count)
+			requires std::default_initializable<value_type>
+		{
 			if (count > EMPTY_GUARD) {
 				pointer constructedMemory = alloc_and_construct([](pointer dest, size_type n) {
 					return std::uninitialized_value_construct_n(dest, n);
@@ -323,7 +324,9 @@ namespace badEngine {
 				initalize(constructedMemory, count);
 			}
 		}
-		SequenceM(size_type count, const_reference value) {
+		SequenceM(size_type count, const_reference value)
+			requires std::copyable<value_type>
+		{
 			if (count > EMPTY_GUARD) {
 				pointer constructedMemory = alloc_and_construct([&value](pointer dest, size_type n) {
 					return std::uninitialized_fill_n(dest, n, value);
@@ -332,7 +335,9 @@ namespace badEngine {
 				initalize(constructedMemory, count);
 			}
 		}
-		SequenceM(std::initializer_list<value_type> init) {
+		SequenceM(std::initializer_list<value_type> init)
+			requires std::copyable<value_type>//initializer_list members are const, can't move
+		{
 			const size_type size = init.size();
 			if (size > EMPTY_GUARD) {
 				pointer constructedMemory = alloc_and_construct([init](pointer dest, size_type n) {
@@ -342,7 +347,9 @@ namespace badEngine {
 				initalize(constructedMemory, size);
 			}
 		}
-		SequenceM(const SequenceM& rhs) {
+		SequenceM(const SequenceM& rhs)
+			requires std::copyable<value_type>
+		{
 			size_type size = rhs.size();
 			if (size > EMPTY_GUARD) {
 				pointer constructedMemory = alloc_and_construct([&rhs](pointer dest, size_type n) {
@@ -353,11 +360,11 @@ namespace badEngine {
 			}
 		}
 		constexpr SequenceM(SequenceM&& rhs)noexcept {
-			mArray           = std::exchange(rhs.mArray, nullptr);
-			mUsableSize      = std::exchange(rhs.mUsableSize, 0);
+			mArray = std::exchange(rhs.mArray, nullptr);
+			mUsableSize = std::exchange(rhs.mUsableSize, 0);
 			mConstructedSize = std::exchange(rhs.mConstructedSize, 0);
-			mCapacity        = std::exchange(rhs.mCapacity, 0);
-			mGrowthResistor  = std::exchange(rhs.mGrowthResistor, 0);
+			mCapacity = std::exchange(rhs.mCapacity, 0);
+			mGrowthResistor = std::exchange(rhs.mGrowthResistor, 0);
 		}
 		SequenceM& operator=(SequenceM rhs)noexcept {
 			//using swap idiom
@@ -366,7 +373,7 @@ namespace badEngine {
 		}
 		SequenceM& operator=(std::initializer_list<value_type> ilist) {
 			//using swap idiom
-			SequenceM temp = ilist;
+			SequenceM temp(ilist);
 			temp.swap(*this);
 			return *this;
 		}
@@ -398,7 +405,9 @@ namespace badEngine {
 			}
 		}
 		//copies elements
-		void push_back(const value_type& value)noexcept {
+		void push_back(const value_type& value)
+			requires std::copyable<value_type>
+		{
 			//if at capacity, reallocate with extra memory
 			if (mConstructedSize == mCapacity)
 				reallocate(growthFactor(mCapacity));
@@ -419,7 +428,9 @@ namespace badEngine {
 		}
 		//creates elements and or accepts moving as well
 		template<typename... Args>
-		void emplace_back(Args&&... args)noexcept requires std::constructible_from<value_type, Args&&...> {
+		void emplace_back(Args&&... args)
+			requires std::constructible_from<value_type, Args&&...>
+		{
 			//if at capacity, reallocate with extra memory
 			if (mConstructedSize == mCapacity)
 				reallocate(growthFactor(mCapacity));
@@ -440,7 +451,7 @@ namespace badEngine {
 		}
 		//does nothing besides decrementing counter
 		constexpr void pop_back()noexcept {
-			if (!empty()) 
+			if (!empty())
 				--mUsableSize;
 		}
 		//basically erase
@@ -462,7 +473,7 @@ namespace badEngine {
 			pointer targetEnd = last.base();
 			//if range is 0 then there is nothing to remove (MAY BE FLAWED LOGIC)
 			if (targetBegin == targetEnd) return;
-			
+
 			pointer arrayBegin = pBegin_mem();
 			pointer arrayEnd = pEnd_usable();
 			//TODO::maybe assert so at runtime it would just YOLO
@@ -503,7 +514,7 @@ namespace badEngine {
 		void shrink_to_fit() {
 			if (mCapacity > mUsableSize)
 				reallocate(mUsableSize);
-		}		
+		}
 	private:
 		//member variables
 		pointer                  mArray = nullptr;
