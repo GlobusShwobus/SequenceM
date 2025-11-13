@@ -435,16 +435,13 @@ namespace badEngine {
 				reallocate(growthFactor(mCapacity));
 			//current end point
 			pointer slot = pEnd_usable();
-			//if there is a constructed but depricated slot, move assign into it
-			if (has_constructed_slots()) {
-				*slot = value_type(std::forward<Args>(args)...);
-			}
-			//if there aren't any slots remaining, need official constructor
-			else {
-				std::construct_at(slot, std::forward<Args>(args)...);
-				//if we constructed a new thing, incr constructed counter
+			//if there is a constructed but depricated slot must destroy it first
+			if (has_constructed_slots()) 
+				std::destroy_at(slot);
+			else //otherwise need to increment mConstructedSize bookkeeping
 				++mConstructedSize;
-			}
+			//construct the element
+			std::construct_at(slot, std::forward<Args>(args)...);
 			//in any case after adding incr usable size
 			++mUsableSize;
 		}
