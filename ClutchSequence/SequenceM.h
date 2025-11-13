@@ -456,6 +456,20 @@ namespace badEngine {
 				--mUsableSize;
 		}
 		//basically erase
+		void remove_preserved_order(iterator pos)
+			requires std::is_nothrow_move_assignable_v<value_type>
+		{
+			pointer target = pos.base();
+			pointer begin = pBegin_mem();
+			pointer end = pEnd_usable();
+			//TODO::maybe assert so at runtime it would just YOLO
+			if (target < begin || target >= end)
+				throw std::out_of_range("position out of range");
+			//skip deconstructing the object (since it's not like it saves memory and it should not be accessed anyway)
+			std::move(target + 1, end, target);//from, till, into
+			//reminder: constructed object counter DOES NOT CHANGE
+			--mUsableSize;
+		}
 		void remove_preserved_order(iterator first, iterator last)
 			requires std::is_nothrow_move_assignable_v<value_type>
 		{
