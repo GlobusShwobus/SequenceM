@@ -10,7 +10,6 @@ namespace badEngine {
 	concept IS_SEQUENCE_COMPATIBLE =
 		std::destructible<T> &&
 		std::is_nothrow_move_constructible_v<T> &&
-		std::is_nothrow_move_assignable_v<T> &&
 		!std::is_const_v<T>;
 
 	template<typename T>
@@ -455,20 +454,9 @@ namespace badEngine {
 				--mUsableSize;
 		}
 		//basically erase
-		void remove_preserved_order(iterator pos) {
-			pointer target = pos.base();
-			pointer begin = pBegin_mem();
-			pointer end = pEnd_usable();
-			//TODO::maybe assert so at runtime it would just YOLO
-			if (target < begin || target >= end)
-				throw std::out_of_range("position out of range");
-			//skip deconstructing the object (since it's not like it saves memory and it should not be accessed anyway)
-			std::move(target + 1, end, target);//from, till, into
-			//reminder: constructed object counter DOES NOT CHANGE
-			--mUsableSize;
-		}
-		//basically erase
-		void remove_preserved_order(iterator first, iterator last) {
+		void remove_preserved_order(iterator first, iterator last)
+			requires std::is_nothrow_move_assignable_v<value_type>
+		{
 			pointer targetBegin = first.base();
 			pointer targetEnd = last.base();
 			//if range is 0 then there is nothing to remove (MAY BE FLAWED LOGIC)
@@ -489,7 +477,9 @@ namespace badEngine {
 			mUsableSize -= (targetEnd - targetBegin);
 		}
 		//swaps last element with pos element, meaning it does not preserve order
-		void remove_unpreserved_order(iterator pos) {
+		void remove_unpreserved_order(iterator pos)
+			requires std::is_nothrow_move_assignable_v<value_type>
+		{
 			pointer target = pos.base();
 			pointer begin = pBegin_mem();
 			pointer end = pEnd_usable();
