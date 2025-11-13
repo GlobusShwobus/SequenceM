@@ -250,6 +250,11 @@ namespace badEngine {
 			std::destroy(begin, end);
 		}
 
+		inline void destroy_if_nontrivial(pointer ptr) noexcept {
+			if constexpr (!std::is_trivially_destructible_v<value_type>)
+				std::destroy_at(ptr);
+		}
+
 		//internal ptr usage
 		pointer pBegin_mem()noexcept { return mArray; }
 		pointer pEnd_usable()noexcept { return mArray + mUsableSize; }
@@ -436,8 +441,8 @@ namespace badEngine {
 			//current end point
 			pointer slot = pEnd_usable();
 			//if there is a constructed but depricated slot must destroy it first
-			if (has_constructed_slots()) 
-				std::destroy_at(slot);
+			if (has_constructed_slots())
+				destroy_if_nontrivial(slot);
 			else //otherwise need to increment mConstructedSize bookkeeping
 				++mConstructedSize;
 			//construct the element
